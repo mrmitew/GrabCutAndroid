@@ -7,4 +7,4 @@ A dummy app that demonstrates foreground-background segmentation using the GrabC
 - RxJava 2.1.6
 - RxKotlin 2.1.0
 - RxAndroid 2.0.1
-- RxPermissions2 0.9.4
+- RxPermissions 0.9.4
