@@ -198,54 +198,78 @@ class MainActivity : AppCompatActivity() {
         image.apply {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             adjustViewBounds = true
-            setImageBitmap(BitmapFactory.decodeFile(currentPhotoPath + "_tmp.jpg"))
+            bitmap = BitmapFactory.decodeFile(currentPhotoPath + "_tmp.jpg")
+            setImageBitmap(bitmap)
             invalidate()
         }
     }
-
     private fun extractForegroundFromBackground(coordinates: Coordinates, currentPhotoPath: String): String {
         // TODO: Provide complex object that has both path and extension
 
-        val img = Imgcodecs.imread(currentPhotoPath)
-        val firstMask = Mat()
+        // Matrices that OpenCV will be using internally
         val bgModel = Mat()
         val fgModel = Mat()
-        val source = Mat(1, 1, CvType.CV_8U, Scalar(Imgproc.GC_PR_FGD.toDouble()))
-        val dst = Mat()
-        val rect = Rect(coordinates.first, coordinates.second)
-        val vals = Mat(1, 1, CvType.CV_8UC3, Scalar(0.0))
 
-        Imgproc.grabCut(img, firstMask, rect, bgModel, fgModel, 5, Imgproc.GC_INIT_WITH_RECT)
+        val srcImage = Imgcodecs.imread(currentPhotoPath)
+        val iterations = 5
+
+        // Mask image where we specify which areas are background, foreground or probable background/foreground
+        val firstMask = Mat()
+
+        val source = Mat(1, 1, CvType.CV_8U, Scalar(Imgproc.GC_PR_FGD.toDouble()))
+        val rect = Rect(coordinates.first, coordinates.second)
+
+        // Run the grab cut algorithm with a rectangle (for subsequent iterations with touch-up strokes,
+        // flag should be Imgproc.GC_INIT_WITH_MASK)
+        Imgproc.grabCut(srcImage, firstMask, rect, bgModel, fgModel, iterations, Imgproc.GC_INIT_WITH_RECT)
+
+        // Create a matrix of 0s and 1s, indicating whether individual pixels are equal
+        // or different between "firstMask" and "source" objects
+        // Result is stored back to "firstMask"
         Core.compare(firstMask, source, firstMask, Core.CMP_EQ)
 
-        val foreground = Mat(img.size(), CvType.CV_8UC3, Scalar(255.0, 255.0, 255.0))
-        img.copyTo(foreground, firstMask)
+        // Create a matrix to represent the foreground, filled with white color
+        val foreground = Mat(srcImage.size(), CvType.CV_8UC3, Scalar(255.0, 255.0, 255.0))
 
+        // Copy the foreground matrix to the first mask
+        srcImage.copyTo(foreground, firstMask)
+
+        // Create a red color
         val color = Scalar(255.0, 0.0, 0.0, 255.0)
-        Imgproc.rectangle(img, coordinates.first, coordinates.second, color)
+        // Draw a rectangle using the coordinates of the bounding box that surrounds the foreground
+        Imgproc.rectangle(srcImage, coordinates.first, coordinates.second, color)
 
-        var background = Mat(img.size(), CvType.CV_8UC3, Scalar(255.0, 255.0, 255.0))
-        val tmp = Mat()
-        Imgproc.resize(background, tmp, img.size())
-        background = tmp
+        // Create a new matrix to represent the background, filled with white color
+        val background = Mat(srcImage.size(), CvType.CV_8UC3, Scalar(255.0, 255.0, 255.0))
+
         val mask = Mat(foreground.size(), CvType.CV_8UC1, Scalar(255.0, 255.0, 255.0))
-
+        // Convert the foreground's color space from BGR to gray scale
         Imgproc.cvtColor(foreground, mask, Imgproc.COLOR_BGR2GRAY)
+
+        // Separate out regions of the mask by comparing the pixel intensity with respect to a threshold value
         Imgproc.threshold(mask, mask, 254.0, 255.0, Imgproc.THRESH_BINARY_INV)
+
+        // Create a matrix to hold the final image
+        val dst = Mat()
+        // copy the background matrix onto the matrix that represents the final result
         background.copyTo(dst)
+
+        val vals = Mat(1, 1, CvType.CV_8UC3, Scalar(0.0))
+        // Replace all 0 values in the background matrix given the foreground mask
         background.setTo(vals, mask)
+
+        // Add the sum of the background and foreground matrices by applying the mask
         Core.add(background, foreground, dst, mask)
 
-        // Save to the storage
+        // Save the final image to storage
         Imgcodecs.imwrite(currentPhotoPath + "_tmp.jpg", dst)
 
-        // Clean up resources
+        // Clean up used resources
         firstMask.release()
         source.release()
         bgModel.release()
         fgModel.release()
         vals.release()
-        tmp.release()
         dst.release()
 
         return currentPhotoPath
