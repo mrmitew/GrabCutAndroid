@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.*
 import android.graphics.drawable.BitmapDrawable
+import android.media.Image
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -14,7 +15,9 @@ import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View.GONE
 import android.view.View.VISIBLE
+import android.widget.ImageView
 import android.widget.Toast
+import com.github.mrmitew.grabcutsample.R.id.top
 import com.tbruyelle.rxpermissions2.RxPermissions
 import io.reactivex.Single
 import io.reactivex.android.schedulers.AndroidSchedulers
@@ -59,16 +62,19 @@ class MainActivity : AppCompatActivity() {
                 return@setOnTouchListener false
             }
             if (event.action == MotionEvent.ACTION_DOWN) {
+                val bounds = getBitmapPositionInsideImageView(image)
+                val xScaled = (event.x / bounds[4]) - bounds[0]
+                val yScaled = (event.y / bounds[5]) - bounds[1]
                 if (!hasChosenTopLeft()) {
                     coordinates.first.apply {
-                        x = event.x.toDouble()
-                        y = event.y.toDouble()
+                        x = xScaled.toDouble()
+                        y = yScaled.toDouble()
                     }
                 } else if (!hasChosenBottomRight()) {
                     with(Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.RGB_565)) {
                         coordinates.second.apply {
-                            x = event.x.toDouble()
-                            y = event.y.toDouble()
+                            x = xScaled.toDouble()
+                            y = yScaled.toDouble()
                         }
                         val rectPaint = Paint().apply {
                             setARGB(255, 255, 0, 0)
@@ -101,7 +107,6 @@ class MainActivity : AppCompatActivity() {
         BitmapFactory.decodeFile(currentPhotoPath, bmOptions)
         bmOptions.apply {
             inJustDecodeBounds = false
-            inSampleSize = Math.min(bmOptions.outWidth / image.width, bmOptions.outHeight / image.height)
             inPurgeable = true
         }
         return BitmapFactory.decodeFile(currentPhotoPath, bmOptions)
@@ -191,7 +196,9 @@ class MainActivity : AppCompatActivity() {
     private fun displayResult(currentPhotoPath: String) {
         // TODO: Provide complex object that has both path and extension
         image.apply {
-            setImageBitmap(BitmapFactory.decodeFile(currentPhotoPath + "_tmp.png"))
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            adjustViewBounds = true
+            setImageBitmap(BitmapFactory.decodeFile(currentPhotoPath + "_tmp.jpg"))
             invalidate()
         }
     }
@@ -208,7 +215,7 @@ class MainActivity : AppCompatActivity() {
         val rect = Rect(coordinates.first, coordinates.second)
         val vals = Mat(1, 1, CvType.CV_8UC3, Scalar(0.0))
 
-        Imgproc.grabCut(img, firstMask, rect, bgModel, fgModel, 3, Imgproc.GC_INIT_WITH_RECT)
+        Imgproc.grabCut(img, firstMask, rect, bgModel, fgModel, 5, Imgproc.GC_INIT_WITH_RECT)
         Core.compare(firstMask, source, firstMask, Core.CMP_EQ)
 
         val foreground = Mat(img.size(), CvType.CV_8UC3, Scalar(255.0, 255.0, 255.0))
@@ -230,7 +237,7 @@ class MainActivity : AppCompatActivity() {
         Core.add(background, foreground, dst, mask)
 
         // Save to the storage
-        Imgcodecs.imwrite(currentPhotoPath + "_tmp.png", dst)
+        Imgcodecs.imwrite(currentPhotoPath + "_tmp.jpg", dst)
 
         // Clean up resources
         firstMask.release()
@@ -242,6 +249,54 @@ class MainActivity : AppCompatActivity() {
         dst.release()
 
         return currentPhotoPath
+    }
+
+    /**
+     * @author Glen Pierce
+     * @link https://stackoverflow.com/questions/35250485/how-to-translate-scale-ontouchevent-coordinates-onto-bitmap-canvas-in-android-in
+     */
+    private fun getBitmapPositionInsideImageView(imageView: ImageView): FloatArray {
+        val rect = FloatArray(6)
+
+        if (imageView.drawable == null)
+            return rect
+
+        // Get image dimensions
+        // Get image matrix values and place them in an array
+        val f = FloatArray(9)
+        imageView.imageMatrix.getValues(f)
+
+        // Extract the scale values using the constants (if aspect ratio maintained, scaleX == scaleY)
+        val scaleX = f[Matrix.MSCALE_X]
+        val scaleY = f[Matrix.MSCALE_Y]
+
+        rect[4] = scaleX
+        rect[5] = scaleY
+
+        // Get the drawable (could also get the bitmap behind the drawable and getWidth/getHeight)
+        val d = imageView.drawable
+        val origW = d.intrinsicWidth
+        val origH = d.intrinsicHeight
+
+        // Calculate the actual dimensions
+        val actW = Math.round(origW * scaleX)
+        val actH = Math.round(origH * scaleY)
+
+        rect[2] = actW.toFloat()
+        rect[3] = actH.toFloat()
+
+        // Get image position
+        // We assume that the image is centered into ImageView
+        val imgViewW = imageView.width
+        val imgViewH = imageView.height
+
+        val left = (imgViewW - actW) / 2
+        val top = (imgViewH - actH) / 2
+
+        rect[0] = left.toFloat()
+        rect[1] = top.toFloat()
+
+        return rect
     }
 
     override fun onDestroy() {
